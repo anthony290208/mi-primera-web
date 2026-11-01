@@ -245,12 +245,18 @@
             <strong id="account-email"></strong>
         </p>
 
-        <p>Saldo: $0.00</p>
-
         <p>
-            El saldo y los movimientos se incorporarán
-            en la siguiente fase.
-        </p>
+    Saldo disponible:
+    <strong id="account-balance">Consultando...</strong>
+</p>
+
+<h3>Historial de movimientos</h3>
+
+<p id="transactions-empty">
+    Consultando movimientos...
+</p>
+
+<ul id="transactions-list"></ul>
 
         <button type="button" id="logout-button">
             Cerrar sesión
@@ -391,6 +397,7 @@
                 "account-username"
             ).textContent =
                 session.user.user_metadata?.username || "Usuario";
+            cargarDatosFinancieros(session.user.id);
 
         } else {
 
@@ -770,6 +777,88 @@
             "¡Conexión correcta! Supabase está funcionando.";
 
     }
+    
+async function cargarDatosFinancieros(userId) {
+
+    const saldo = document.getElementById("account-balance");
+    const lista = document.getElementById("transactions-list");
+    const vacio = document.getElementById("transactions-empty");
+
+    // Consultar saldo
+    const { data: wallet, error: walletError } = await db
+        .from("wallets")
+        .select("balance_cents")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+    if (walletError || !wallet) {
+        saldo.textContent = "No disponible";
+        console.error(walletError);
+        return;
+    }
+
+    function dinero(centavos) {
+        const valor = BigInt(centavos);
+        const dolares = valor / 100n;
+        const decimales = (valor % 100n).toString().padStart(2, "0");
+
+        return "$" + dolares.toString() + "." + decimales;
+    }
+
+    saldo.textContent = dinero(wallet.balance_cents);
+
+    // Consultar últimos 20 movimientos
+    const { data: movimientos, error } = await db
+        .from("wallet_transactions")
+        .select("move_type, amount_cents, description, created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+    if (error) {
+        vacio.textContent = "No se pudo consultar el historial.";
+        console.error(error);
+        return;
+    }
+
+    lista.replaceChildren();
+
+    if (!movimientos || movimientos.length === 0) {
+        vacio.textContent = "Todavía no tienes movimientos.";
+        return;
+    }
+
+    vacio.textContent = "";
+
+    const nombres = {
+        demo_credit: "Crédito ficticio",
+        demo_debit: "Débito ficticio",
+        bet_stake: "Apuesta",
+        payout: "Premio",
+        refund: "Devolución"
+    };
+
+    movimientos.forEach(movimiento => {
+
+        const elemento = document.createElement("li");
+
+        const debito = ["demo_debit", "bet_stake"]
+            .includes(movimiento.move_type);
+
+        const signo = debito ? "-" : "+";
+
+        const fecha = new Date(
+            movimiento.created_at
+        ).toLocaleString("es-VE");
+
+        elemento.textContent =
+            `${nombres[movimiento.move_type]}: ${signo}${dinero(movimiento.amount_cents)} | ${movimiento.description} | ${fecha}`;
+
+        lista.appendChild(elemento);
+
+    });
+}
+
 
     comprobarConexion();
 
