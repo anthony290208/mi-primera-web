@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Casa Deportiva Demo</title>
+    
 
     <style>
         body {
@@ -91,12 +92,55 @@
                 para las cuentas autorizadas.
             </p>
         </section>
-
+        
+<section>
+    <h2>Conexión con la base de datos</h2>
+    <p id="estado-conexion">Comprobando conexión...</p>
+</section>
     </main>
 
     <footer>
         Proyecto en desarrollo | Créditos ficticios
     </footer>
+
+<!-- Librería oficial de Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+    // DATOS DE CONEXIÓN
+    const SUPABASE_URL = "https://eysshgtojgjgqwpsjtcf.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_ezO8J2z5j04X8HZ_42RHaA_8FoD9DeG";
+
+    // Crear conexión
+    const db = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    );
+
+    // Comprobar conexión con la base de datos
+    async function comprobarConexion() {
+
+        const estado = document.getElementById("estado-conexion");
+
+        const { data, error } = await db
+            .from("events")
+            .select("id")
+            .limit(1);
+
+        if (error) {
+            estado.textContent = "Error de conexión. Revisa la configuración.";
+            console.error(error);
+            return;
+        }
+
+        estado.textContent =
+            "¡Conexión correcta! Supabase está funcionando.";
+
+        console.log("Conexión exitosa:", data);
+    }
+
+    comprobarConexion();
+</script>
 
 </body>
 </html>
