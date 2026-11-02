@@ -752,7 +752,12 @@ function updateAccount(session) {
             session.user.user_metadata?.username || "Usuario";
 
         cargarDatosFinancieros(session.user.id);
-        cargarEstadoHilo(session.user.id);
+
+// Recuperar partida activa de HILO.
+cargarEstadoHilo(session.user.id);
+
+// Comprobar permisos administrativos.
+cargarPanelAdmin();
 
         // Comprobar permisos administrativos.
         cargarPanelAdmin();
@@ -1517,8 +1522,6 @@ async function cargarEstadoHilo(userId) {
 boton.disabled = true;
 
 bloquearAccionesHilo(false);
-
-        bloquearAccionesHilo(true);
 
     } else {
 
