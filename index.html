@@ -291,14 +291,48 @@
 
     <!-- ADMINISTRACIÓN -->
 
-    <section>
+<section id="admin-panel" hidden>
 
-        <h2>Panel administrativo</h2>
+        
+<h2>Panel administrativo</h2>
 
-        <p>
-            La administración estará disponible
-            exclusivamente para cuentas autorizadas.
-        </p>
+<p>
+    Administración exclusiva para cuentas autorizadas.
+</p>
+
+<p id="admin-status">
+    Comprobando permisos administrativos...
+</p>
+
+<hr>
+
+<h3>Usuarios registrados</h3>
+
+<input
+    type="search"
+    id="admin-user-search"
+    placeholder="Buscar usuario..."
+>
+
+<div id="admin-users">
+    Cargando usuarios...
+</div>
+
+<hr>
+
+<h3>Solicitudes de depósitos</h3>
+
+<div id="admin-deposits">
+    Cargando solicitudes...
+</div>
+
+<hr>
+
+<h3>Solicitudes de retiros</h3>
+
+<div id="admin-withdrawals">
+    Cargando solicitudes...
+</div>
 
     </section>
 
