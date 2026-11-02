@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Casa Deportiva Demo</title>
+    <title>HILO | Juego de cartas</title>
 
     <style>
         body {
@@ -87,14 +87,105 @@
             padding: 20px;
             color: #666;
         }
+        
+/* =================================
+   INTERFAZ DEL JUEGO HILO
+================================= */
+
+.hilo-table {
+    background: #163c2b;
+    color: white;
+    padding: 22px;
+    border-radius: 10px;
+    text-align: center;
+    margin: 18px 0;
+}
+
+.hilo-card {
+    width: 115px;
+    height: 150px;
+    background: white;
+    color: #222;
+    border: 2px solid #222;
+    border-radius: 10px;
+    margin: 20px auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    font-weight: bold;
+}
+
+.hilo-card-rank {
+    font-size: 42px;
+}
+
+.hilo-card-suit {
+    font-size: 32px;
+}
+
+.hilo-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.hilo-stat {
+    background: rgba(255,255,255,0.12);
+    padding: 12px;
+    border-radius: 6px;
+}
+
+.hilo-stat strong {
+    display: block;
+    font-size: 23px;
+    margin-top: 8px;
+}
+
+.hilo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 15px 0;
+}
+
+.hilo-actions button {
+    flex: 1;
+    min-width: 110px;
+    padding: 15px 8px;
+    font-weight: bold;
+}
+
+.hilo-actions button:disabled,
+.hilo-start-button:disabled {
+    background: #888;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.hilo-start-button {
+    width: 100%;
+    padding: 14px;
+    font-weight: bold;
+}
+
+.hilo-info {
+    background: #e9f2ec;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
     </style>
 </head>
 
 <body>
 
 <header>
-    <h1>CASA DEPORTIVA</h1>
-    <p>Plataforma de apuestas deportivas</p>
+   <h1>HILO</h1>
+<p>Minijuego de cartas | Créditos ficticios</p>
 </header>
 
 <main>
@@ -248,9 +339,159 @@
         <p>
     Saldo disponible:
     <strong id="account-balance">Consultando...</strong>
+
 </p>
 
+<!-- =================================
+     JUEGO HILO
+================================= -->
+
+<hr>
+
+<section id="hilo-game-panel">
+
+    <h2>HILO</h2>
+
+    <p>
+        Adivina si la siguiente carta será mayor
+        o menor. Acumula multiplicadores y decide
+        cuándo cobrar.
+    </p>
+
+    <div class="hilo-table">
+
+        <h3>CARTA ACTUAL</h3>
+
+        <div class="hilo-card">
+
+            <span
+                class="hilo-card-rank"
+                id="hilo-card-rank"
+            >
+                ?
+            </span>
+
+            <span
+                class="hilo-card-suit"
+                id="hilo-card-suit"
+            >
+                ?
+            </span>
+
+        </div>
+
+        <div class="hilo-stat-grid">
+
+            <div class="hilo-stat">
+                MULTIPLICADOR
+
+                <strong id="hilo-multiplier">
+                    1.00x
+                </strong>
+            </div>
+
+            <div class="hilo-stat">
+                SALTOS UTILIZADOS
+
+                <strong id="hilo-skips">
+                    0/52
+                </strong>
+            </div>
+
+        </div>
+
+        <p id="hilo-game-status">
+            Preparado para comenzar.
+        </p>
+
+    </div>
+
+
+    <!-- APUESTA INICIAL -->
+
+    <h3>Tu apuesta</h3>
+
+    <label>Importe en dólares ficticios</label>
+
+    <input
+        id="hilo-stake"
+        type="number"
+        min="0.01"
+        step="0.01"
+        placeholder="Ejemplo: 10.00"
+    >
+
+    <button
+        type="button"
+        id="hilo-start-button"
+        class="hilo-start-button"
+        disabled
+    >
+        INICIAR PARTIDA
+    </button>
+
+
+    <!-- PREDICCIONES -->
+
+    <h3>Elige tu predicción</h3>
+
+    <div class="hilo-actions">
+
+        <button
+            type="button"
+            id="hilo-high"
+            disabled
+        >
+            HIGH ↑
+            <br>
+            <small>Mayor o igual</small>
+        </button>
+
+        <button
+            type="button"
+            id="hilo-low"
+            disabled
+        >
+            LOW ↓
+            <br>
+            <small>Menor o igual</small>
+        </button>
+
+    </div>
+
+
+    <button
+        type="button"
+        id="hilo-skip"
+        class="secundario"
+        disabled
+    >
+        SKIP CARD
+    </button>
+
+    <hr>
+
+    <h3>Retirar ganancias</h3>
+
+    <button
+        type="button"
+        id="hilo-cashout"
+        class="hilo-start-button"
+        disabled
+    >
+        CASH OUT
+    </button>
+
+    <p id="hilo-result-message" class="hilo-info">
+        El motor del juego se conectará en el siguiente paso.
+    </p>
+
+</section>
+
+<hr>
+
 <h3>Historial de movimientos</h3>
+
 
 <p id="transactions-empty">
     Consultando movimientos...
@@ -355,21 +596,6 @@
             Esperando...
         </p>
     </section>
-
-
-    <!-- EVENTOS -->
-
-    <section>
-
-        <h2>Eventos deportivos</h2>
-
-        <p>
-            Los eventos y sus cuotas aparecerán aquí
-            cuando construyamos el módulo deportivo.
-        </p>
-
-    </section>
-
 
     <!-- ADMINISTRACIÓN -->
 
