@@ -257,6 +257,88 @@
 </p>
 
 <ul id="transactions-list"></ul>
+        
+<hr>
+
+<h3>Solicitar depósito</h3>
+
+<p>
+    Solicita créditos ficticios para tu cuenta.
+    El administrador deberá aprobar la solicitud.
+</p>
+
+<form id="deposit-request-form">
+
+    <label>Importe del depósito ($)</label>
+
+    <input
+        id="deposit-amount"
+        type="number"
+        min="0.01"
+        max="10000"
+        step="0.01"
+        placeholder="Ejemplo: 50.00"
+        required
+    >
+
+    <label>Nota (opcional)</label>
+
+    <input
+        id="deposit-note"
+        type="text"
+        maxlength="500"
+        placeholder="Descripción de la solicitud"
+    >
+
+    <button type="submit">
+        Solicitar depósito
+    </button>
+
+</form>
+
+<p id="deposit-request-message" role="status"></p>
+
+<hr>
+
+<h3>Solicitar retiro</h3>
+
+<p>
+    Solicita retirar créditos disponibles de tu cuenta.
+</p>
+
+<form id="withdrawal-request-form">
+
+    <label>Importe del retiro ($)</label>
+
+    <input
+        id="withdrawal-amount"
+        type="number"
+        min="0.01"
+        max="10000"
+        step="0.01"
+        placeholder="Ejemplo: 20.00"
+        required
+    >
+
+    <label>Nota (opcional)</label>
+
+    <input
+        id="withdrawal-note"
+        type="text"
+        maxlength="500"
+        placeholder="Descripción de la solicitud"
+    >
+
+    <button type="submit">
+        Solicitar retiro
+    </button>
+
+</form>
+
+<p id="withdrawal-request-message" role="status"></p>
+
+<hr>
+
 
         <button type="button" id="logout-button">
             Cerrar sesión
@@ -857,6 +939,201 @@ async function procesarSolicitudAdmin(
     await cargarPanelAdmin();
 
 }
+
+// =============================================
+// SOLICITUDES FINANCIERAS DE USUARIOS
+// =============================================
+
+// Convertir dolares a centavos sin errores decimales.
+
+function convertirImporteCentavos(valor) {
+
+    const texto = String(valor).trim();
+
+    if (!/^\d+(\.\d{1,2})?$/.test(texto)) {
+        return null;
+    }
+
+    const partes = texto.split(".");
+
+    const enteros = BigInt(partes[0]);
+
+    const decimales = BigInt(
+        (partes[1] || "").padEnd(2, "0")
+    );
+
+    const centavos = enteros * 100n + decimales;
+
+    if (
+        centavos <= 0n ||
+        centavos > 1000000n
+    ) {
+        return null;
+    }
+
+    return centavos.toString();
+
+}
+
+
+// PROCESAR SOLICITUDES.
+
+async function enviarSolicitudFinanciera(event, tipo) {
+
+    event.preventDefault();
+
+    const form = event.currentTarget;
+
+    const boton = form.querySelector(
+        'button[type="submit"]'
+    );
+
+    const esDeposito = tipo === "deposit";
+
+    const prefijo = esDeposito
+        ? "deposit"
+        : "withdrawal";
+
+    const mensaje = document.getElementById(
+        prefijo + "-request-message"
+    );
+
+    const importe = document.getElementById(
+        prefijo + "-amount"
+    ).value;
+
+    const nota = document.getElementById(
+        prefijo + "-note"
+    ).value.trim();
+
+    const centavos = convertirImporteCentavos(importe);
+
+    if (centavos === null) {
+
+        mensaje.textContent =
+            "Introduce un importe válido entre $0.01 y $10,000.";
+
+        return;
+
+    }
+
+    // Mantener la misma clave si hay que reintentar
+    // una solicitud cuya respuesta se perdió.
+
+    if (!form.dataset.requestKey) {
+
+        if (!window.crypto?.randomUUID) {
+
+            mensaje.textContent =
+                "Tu navegador no permite generar una solicitud segura.";
+
+            return;
+
+        }
+
+        form.dataset.requestKey = crypto.randomUUID();
+
+    }
+
+    boton.disabled = true;
+
+    mensaje.textContent = "Enviando solicitud...";
+
+    try {
+
+        const funcion = esDeposito
+            ? "hilo_request_deposit"
+            : "hilo_request_withdrawal";
+
+        const { data, error } = await db.rpc(
+            funcion,
+            {
+                p_amount_cents: centavos,
+                p_note: nota || null,
+                p_request_key: form.dataset.requestKey
+            }
+        );
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || !data.success) {
+            throw new Error("La solicitud no pudo confirmarse.");
+        }
+
+        delete form.dataset.requestKey;
+
+        form.reset();
+
+        if (esDeposito) {
+
+            mensaje.textContent =
+                "Solicitud de depósito enviada. Está pendiente de aprobación.";
+
+        } else {
+
+            mensaje.textContent =
+                "Solicitud de retiro enviada. El importe quedó reservado.";
+
+        }
+
+        // Actualizar saldo e historial.
+
+        const { data: userData } = await db.auth.getUser();
+
+        if (userData?.user) {
+
+            await cargarDatosFinancieros(
+                userData.user.id
+            );
+
+        }
+
+        // Actualizar ADMIN si la cuenta tiene acceso.
+
+        const panelAdmin = document.getElementById(
+            "admin-panel"
+        );
+
+        if (!panelAdmin.hidden) {
+            await cargarPanelAdmin();
+        }
+
+    } catch (error) {
+
+        console.error(error);
+
+        mensaje.textContent =
+            "No se pudo completar la solicitud: " + error.message;
+
+        // Conservamos la clave para permitir reintentar.
+
+    } finally {
+
+        boton.disabled = false;
+
+    }
+
+}
+
+
+// CONECTAR LOS BOTONES.
+
+document.getElementById(
+    "deposit-request-form"
+).addEventListener(
+    "submit",
+    (event) => enviarSolicitudFinanciera(event, "deposit")
+);
+
+
+document.getElementById(
+    "withdrawal-request-form"
+).addEventListener(
+    "submit",
+    (event) => enviarSolicitudFinanciera(event, "withdrawal")
+);
 
     // =====================================
     // 4. DETECTAR SESIONES Y RECUPERACIÓN
