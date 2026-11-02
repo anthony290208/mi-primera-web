@@ -396,6 +396,7 @@
         document.getElementById("auth-message");
 
     let recoveryMode = false;
+    let adminUsersCache = [];
 
 
     function showMessage(text) {
@@ -407,7 +408,50 @@
     // 3. MOSTRAR ESTADO DE LA CUENTA
     // =====================================
 
-    function updateAccount(session) {
+   
+function updateAccount(session) {
+
+    if (recoveryMode) {
+        authPanel.hidden = true;
+        accountPanel.hidden = true;
+        resetPanel.hidden = false;
+        document.getElementById("admin-panel").hidden = true;
+        return;
+    }
+
+    resetPanel.hidden = true;
+
+    if (session && session.user) {
+
+        authPanel.hidden = true;
+        accountPanel.hidden = false;
+
+        document.getElementById(
+            "account-email"
+        ).textContent = session.user.email || "";
+
+        document.getElementById(
+            "account-username"
+        ).textContent =
+            session.user.user_metadata?.username || "Usuario";
+
+        cargarDatosFinancieros(session.user.id);
+
+        // Comprobar permisos administrativos.
+        cargarPanelAdmin();
+
+    } else {
+
+        authPanel.hidden = false;
+        accountPanel.hidden = true;
+
+        document.getElementById(
+            "admin-panel"
+        ).hidden = true;
+
+    }
+}
+
 
         if (recoveryMode) {
             authPanel.hidden = true;
@@ -441,6 +485,410 @@
         }
     }
 
+
+// =============================================
+// PANEL ADMINISTRATIVO
+// =============================================
+
+async function cargarPanelAdmin() {
+
+    const panel = document.getElementById("admin-panel");
+    const estado = document.getElementById("admin-status");
+
+    // Mantener oculto mientras se comprueban permisos.
+    panel.hidden = true;
+
+    const { data, error } = await db.rpc(
+        "hilo_admin_dashboard"
+    );
+
+    if (error) {
+
+        console.log("Panel no autorizado o error:", error.message);
+        return;
+
+    }
+
+    // Solamente mostrarlo después de recibir
+    // información del RPC protegido.
+
+    panel.hidden = false;
+
+    estado.textContent = "Administrador autorizado.";
+
+    adminUsersCache = data.users || [];
+
+    renderAdminUsers();
+
+    renderAdminDeposits(data.deposits || []);
+
+    renderAdminWithdrawals(data.withdrawals || []);
+
+}
+
+
+// FORMATEAR DINERO EN CENTAVOS.
+
+function formatoAdminDinero(valor) {
+
+    const cents = BigInt(valor || "0");
+
+    const enteros = cents / 100n;
+
+    const decimales = (cents % 100n)
+        .toString()
+        .padStart(2, "0");
+
+    return "$" + enteros.toString() + "." + decimales;
+
+}
+
+
+// CREAR TEXTO SEGURO EN HTML.
+
+function adminTexto(parent, tag, texto) {
+
+    const element = document.createElement(tag);
+
+    element.textContent = texto ?? "";
+
+    parent.appendChild(element);
+
+    return element;
+
+}
+
+
+// MOSTRAR USUARIOS.
+
+function renderAdminUsers() {
+
+    const container = document.getElementById(
+        "admin-users"
+    );
+
+    container.replaceChildren();
+
+    const input = document.getElementById(
+        "admin-user-search"
+    );
+
+    const search = input.value.trim().toLowerCase();
+
+    const filtered = adminUsersCache.filter(user => {
+
+        return (
+            (user.username || "").toLowerCase().includes(search) ||
+            (user.email || "").toLowerCase().includes(search)
+        );
+
+    });
+
+    if (filtered.length === 0) {
+
+        adminTexto(
+            container,
+            "p",
+            "No se encontraron usuarios."
+        );
+
+        return;
+
+    }
+
+    filtered.forEach(user => {
+
+        const card = document.createElement("div");
+
+        adminTexto(
+            card,
+            "h4",
+            user.username
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Correo: " + user.email
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Saldo: " + formatoAdminDinero(user.balance_cents)
+        );
+
+        container.appendChild(card);
+
+    });
+
+}
+
+
+// ACTIVAR BUSCADOR UNA SOLA VEZ.
+
+const adminSearch = document.getElementById(
+    "admin-user-search"
+);
+
+adminSearch.addEventListener(
+    "input",
+    renderAdminUsers
+);
+
+
+// MOSTRAR SOLICITUDES DE DEPOSITOS.
+
+function renderAdminDeposits(requests) {
+
+    const container = document.getElementById(
+        "admin-deposits"
+    );
+
+    container.replaceChildren();
+
+    if (requests.length === 0) {
+
+        adminTexto(
+            container,
+            "p",
+            "No hay solicitudes de depósitos."
+        );
+
+        return;
+
+    }
+
+    requests.forEach(request => {
+
+        const card = document.createElement("div");
+
+        adminTexto(
+            card,
+            "h4",
+            request.username + " — " +
+            formatoAdminDinero(request.amount_cents)
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Correo: " + request.email
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Estado: " + request.status
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Fecha: " +
+            new Date(request.created_at).toLocaleString("es-VE")
+        );
+
+        if (request.note) {
+            adminTexto(card, "p", "Nota: " + request.note);
+        }
+
+        if (request.status === "pending") {
+
+            const approve = document.createElement("button");
+
+            approve.textContent = "Aprobar depósito";
+
+            approve.onclick = () => procesarSolicitudAdmin(
+                approve,
+                "hilo_admin_review_deposit",
+                {
+                    p_request_id: request.id,
+                    p_decision: "approve"
+                }
+            );
+
+            const reject = document.createElement("button");
+
+            reject.textContent = "Rechazar depósito";
+            reject.className = "secundario";
+
+            reject.onclick = () => procesarSolicitudAdmin(
+                reject,
+                "hilo_admin_review_deposit",
+                {
+                    p_request_id: request.id,
+                    p_decision: "reject"
+                }
+            );
+
+            card.appendChild(approve);
+            card.appendChild(reject);
+
+        }
+
+        container.appendChild(card);
+
+    });
+
+}
+
+
+// MOSTRAR SOLICITUDES DE RETIROS.
+
+function renderAdminWithdrawals(requests) {
+
+    const container = document.getElementById(
+        "admin-withdrawals"
+    );
+
+    container.replaceChildren();
+
+    if (requests.length === 0) {
+
+        adminTexto(
+            container,
+            "p",
+            "No hay solicitudes de retiros."
+        );
+
+        return;
+
+    }
+
+    requests.forEach(request => {
+
+        const card = document.createElement("div");
+
+        adminTexto(
+            card,
+            "h4",
+            request.username + " — " +
+            formatoAdminDinero(request.amount_cents)
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Correo: " + request.email
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Estado: " + request.status
+        );
+
+        adminTexto(
+            card,
+            "p",
+            "Fecha: " +
+            new Date(request.created_at).toLocaleString("es-VE")
+        );
+
+        if (request.note) {
+            adminTexto(card, "p", "Nota: " + request.note);
+        }
+
+        if (request.status === "pending") {
+
+            const approve = document.createElement("button");
+
+            approve.textContent = "Aprobar retiro";
+
+            approve.onclick = () => procesarSolicitudAdmin(
+                approve,
+                "hilo_admin_review_withdrawal",
+                {
+                    p_request_id: request.id,
+                    p_decision: "approve"
+                }
+            );
+
+            const reject = document.createElement("button");
+
+            reject.textContent = "Rechazar retiro";
+            reject.className = "secundario";
+
+            reject.onclick = () => procesarSolicitudAdmin(
+                reject,
+                "hilo_admin_review_withdrawal",
+                {
+                    p_request_id: request.id,
+                    p_decision: "reject"
+                }
+            );
+
+            card.appendChild(approve);
+            card.appendChild(reject);
+
+        }
+
+        if (request.status === "approved") {
+
+            const paid = document.createElement("button");
+
+            paid.textContent = "Marcar como pagado";
+
+            paid.onclick = () => procesarSolicitudAdmin(
+                paid,
+                "hilo_admin_mark_withdrawal_paid",
+                {
+                    p_request_id: request.id
+                }
+            );
+
+            card.appendChild(paid);
+
+        }
+
+        container.appendChild(card);
+
+    });
+
+}
+
+
+// EJECUTAR ACCIONES ADMINISTRATIVAS.
+
+async function procesarSolicitudAdmin(
+    button,
+    functionName,
+    parameters
+) {
+
+    if (!confirm("¿Confirmas esta operación administrativa?")) {
+        return;
+    }
+
+    button.disabled = true;
+
+    const { data, error } = await db.rpc(
+        functionName,
+        parameters
+    );
+
+    if (error) {
+
+        button.disabled = false;
+
+        showMessage(
+            "Error administrativo: " + error.message
+        );
+
+        console.error(error);
+
+        return;
+
+    }
+
+    showMessage(
+        "Operación administrativa procesada correctamente."
+    );
+
+    await cargarPanelAdmin();
+
+}
 
     // =====================================
     // 4. DETECTAR SESIONES Y RECUPERACIÓN
