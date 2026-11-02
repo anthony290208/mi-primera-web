@@ -710,6 +710,9 @@
 let hiloUserId = null;
 let hiloActiveRound = null;
 let hiloStartRequestKey = null;
+let hiloActionRequestKey = null;
+let hiloPendingAction = null;
+let hiloActionBusy = false;
 
 
     function showMessage(text) {
@@ -1444,23 +1447,17 @@ function mostrarEstadoPartida(round) {
 
 // ACTIVAR O DESACTIVAR BOTONES.
 
+
 function bloquearAccionesHilo(bloquear) {
 
-    document.getElementById(
-        "hilo-high"
-    ).disabled = bloquear;
+    document.getElementById("hilo-high").disabled = bloquear;
 
-    document.getElementById(
-        "hilo-low"
-    ).disabled = bloquear;
+    document.getElementById("hilo-low").disabled = bloquear;
 
-    document.getElementById(
-        "hilo-skip"
-    ).disabled = bloquear;
+    document.getElementById("hilo-skip").disabled = bloquear;
 
-    document.getElementById(
-        "hilo-cashout"
-    ).disabled = bloquear;
+    // CASH OUT se conectará en la siguiente etapa.
+    document.getElementById("hilo-cashout").disabled = true;
 
 }
 
@@ -1514,10 +1511,12 @@ async function cargarEstadoHilo(userId) {
 
         mostrarEstadoPartida(data);
 
-        estado.textContent =
-            "Tienes una partida activa. Las predicciones se conectarán próximamente.";
+      estado.textContent =
+    "Partida activa. Elige HIGH, LOW o SKIP CARD.";
 
-        boton.disabled = true;
+boton.disabled = true;
+
+bloquearAccionesHilo(false);
 
         bloquearAccionesHilo(true);
 
@@ -1679,7 +1678,7 @@ async function iniciarPartidaHilo() {
 
         boton.disabled = true;
 
-        bloquearAccionesHilo(true);
+        bloquearAccionesHilo(false);
 
         estado.textContent =
             "¡Partida iniciada! Ya tienes tu primera carta.";
@@ -1724,6 +1723,240 @@ document.getElementById(
 ).addEventListener(
     "click",
     iniciarPartidaHilo
+);
+
+// =============================================
+// HILO: HIGH, LOW Y SKIP CARD
+// =============================================
+
+async function jugarPasoHilo(action) {
+
+    if (
+        !hiloActiveRound ||
+        hiloActiveRound.status !== "active"
+    ) {
+        return;
+    }
+
+    if (hiloActionBusy) {
+        return;
+    }
+
+    // Si hubo un error de comunicación, solamente
+    // permitimos reintentar la misma acción.
+    if (
+        hiloActionRequestKey &&
+        hiloPendingAction !== action
+    ) {
+        document.getElementById(
+            "hilo-result-message"
+        ).textContent =
+            "Reintenta la última acción antes de elegir otra.";
+
+        return;
+    }
+
+    if (!hiloActionRequestKey) {
+
+        if (!window.crypto?.randomUUID) {
+            showMessage("No se puede generar una solicitud segura.");
+            return;
+        }
+
+        hiloActionRequestKey = crypto.randomUUID();
+        hiloPendingAction = action;
+
+    }
+
+    hiloActionBusy = true;
+
+    bloquearAccionesHilo(true);
+
+    const roundId = hiloActiveRound.id;
+
+    const estado = document.getElementById(
+        "hilo-game-status"
+    );
+
+    const resultado = document.getElementById(
+        "hilo-result-message"
+    );
+
+    estado.textContent = "Revelando nueva carta...";
+
+    try {
+
+        // EJECUTAR ACCION EN SUPABASE.
+
+        const { data, error } = await db.rpc(
+            "hilo_play_step",
+            {
+                p_round_id: roundId,
+                p_action: action,
+                p_request_key: hiloActionRequestKey
+            }
+        );
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || !data.success) {
+            throw new Error("No se pudo procesar la jugada.");
+        }
+
+
+        // RECUPERAR EL ESTADO REAL DE LA PARTIDA.
+
+        const { data: updated, error: readError } = await db
+            .from("game_rounds")
+            .select(`
+                id,
+                stake_cents,
+                current_card_rank,
+                current_card_suit,
+                current_multiplier,
+                total_guesses,
+                skips_used,
+                status
+            `)
+            .eq("id", roundId)
+            .maybeSingle();
+
+        if (readError) {
+            throw readError;
+        }
+
+        if (!updated) {
+            throw new Error("No se pudo recuperar la partida.");
+        }
+
+
+        // LA RESPUESTA YA FUE CONFIRMADA.
+
+        hiloActionRequestKey = null;
+        hiloPendingAction = null;
+
+        hiloActiveRound = updated;
+
+        mostrarEstadoPartida(updated);
+
+
+        // COMPROBAR ESTADO FINAL.
+
+        const sigueActiva = updated.status === "active";
+
+        document.getElementById(
+            "hilo-start-button"
+        ).disabled = sigueActiva;
+
+        bloquearAccionesHilo(!sigueActiva);
+
+
+        // MOSTRAR RESULTADO.
+
+        if (data.outcome === "lost") {
+
+            estado.textContent =
+                "Partida terminada. Predicción incorrecta.";
+
+            resultado.textContent =
+                "La nueva carta no coincidió con tu predicción. Perdiste la apuesta de esta partida.";
+
+        }
+
+        else if (data.outcome === "skipped") {
+
+            estado.textContent =
+                "Carta saltada correctamente.";
+
+            resultado.textContent =
+                "Nueva carta revelada. El multiplicador permanece igual.";
+
+        }
+
+        else if (data.outcome === "won") {
+
+            estado.textContent =
+                "¡Predicción acertada!";
+
+            const factor =
+                data.step_multiplier || data.multiplier;
+
+            resultado.textContent =
+                "¡Ganaste! Factor de esta jugada: " +
+                Number(factor).toFixed(4) +
+                "x. Multiplicador acumulado: " +
+                Number(updated.current_multiplier).toFixed(4) +
+                "x.";
+
+        }
+
+
+        // ACTUALIZAR SALDO E HISTORIAL.
+
+        await cargarDatosFinancieros(hiloUserId);
+
+        showMessage("Jugada procesada correctamente.");
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        estado.textContent =
+            "No se pudo confirmar la jugada.";
+
+        resultado.textContent =
+            "Pulsa nuevamente el mismo botón para reintentar sin duplicar la jugada.";
+
+        // Se conserva la clave de solicitud.
+        // Así, un reintento no genera otra carta
+        // si el servidor ya procesó la operación.
+
+        ["high", "low", "skip"].forEach(option => {
+
+            document.getElementById(
+                "hilo-" + option
+            ).disabled = option !== action;
+
+        });
+
+    }
+
+    finally {
+
+        hiloActionBusy = false;
+
+    }
+
+}
+
+
+// CONECTAR BOTONES.
+
+document.getElementById(
+    "hilo-high"
+).addEventListener(
+    "click",
+    () => jugarPasoHilo("high")
+);
+
+
+document.getElementById(
+    "hilo-low"
+).addEventListener(
+    "click",
+    () => jugarPasoHilo("low")
+);
+
+
+document.getElementById(
+    "hilo-skip"
+).addEventListener(
+    "click",
+    () => jugarPasoHilo("skip")
 );
 
     // =====================================
