@@ -705,6 +705,11 @@
 
     let recoveryMode = false;
     let adminUsersCache = [];
+    // ESTADO DEL JUEGO HILO
+
+let hiloUserId = null;
+let hiloActiveRound = null;
+let hiloStartRequestKey = null;
 
 
     function showMessage(text) {
@@ -744,6 +749,7 @@ function updateAccount(session) {
             session.user.user_metadata?.username || "Usuario";
 
         cargarDatosFinancieros(session.user.id);
+        cargarEstadoHilo(session.user.id);
 
         // Comprobar permisos administrativos.
         cargarPanelAdmin();
@@ -1359,6 +1365,365 @@ document.getElementById(
 ).addEventListener(
     "submit",
     (event) => enviarSolicitudFinanciera(event, "withdrawal")
+);
+
+// =============================================
+// HILO: INICIO Y RECUPERACION DE PARTIDAS
+// =============================================
+
+
+// CONVERTIR VALOR DE CARTA A TEXTO.
+
+function nombreCarta(rank) {
+
+    const nombres = {
+        1: "A",
+        11: "J",
+        12: "Q",
+        13: "K"
+    };
+
+    return nombres[rank] || String(rank);
+
+}
+
+
+// MOSTRAR UNA CARTA.
+
+function mostrarCartaHilo(rank, suit) {
+
+    const carta = document.getElementById(
+        "hilo-card-rank"
+    );
+
+    const palo = document.getElementById(
+        "hilo-card-suit"
+    );
+
+    const simbolos = {
+        hearts: "♥",
+        diamonds: "♦",
+        clubs: "♣",
+        spades: "♠"
+    };
+
+    carta.textContent = nombreCarta(rank);
+
+    palo.textContent = simbolos[suit] || "?";
+
+    const rojo = suit === "hearts" ||
+                 suit === "diamonds";
+
+    carta.style.color = rojo ? "#dc2626" : "#222";
+    palo.style.color = rojo ? "#dc2626" : "#222";
+
+}
+
+
+// MOSTRAR DATOS DE UNA PARTIDA.
+
+function mostrarEstadoPartida(round) {
+
+    mostrarCartaHilo(
+        round.current_card_rank,
+        round.current_card_suit
+    );
+
+    document.getElementById(
+        "hilo-multiplier"
+    ).textContent =
+        Number(round.current_multiplier).toFixed(2) + "x";
+
+    document.getElementById(
+        "hilo-skips"
+    ).textContent =
+        round.skips_used + "/52";
+
+}
+
+
+// ACTIVAR O DESACTIVAR BOTONES.
+
+function bloquearAccionesHilo(bloquear) {
+
+    document.getElementById(
+        "hilo-high"
+    ).disabled = bloquear;
+
+    document.getElementById(
+        "hilo-low"
+    ).disabled = bloquear;
+
+    document.getElementById(
+        "hilo-skip"
+    ).disabled = bloquear;
+
+    document.getElementById(
+        "hilo-cashout"
+    ).disabled = bloquear;
+
+}
+
+
+// CONSULTAR SI EXISTE UNA PARTIDA ACTIVA.
+
+async function cargarEstadoHilo(userId) {
+
+    hiloUserId = userId;
+
+    const boton = document.getElementById(
+        "hilo-start-button"
+    );
+
+    const estado = document.getElementById(
+        "hilo-game-status"
+    );
+
+    const { data, error } = await db
+        .from("game_rounds")
+        .select(`
+            id,
+            stake_cents,
+            current_card_rank,
+            current_card_suit,
+            current_multiplier,
+            total_guesses,
+            skips_used,
+            status
+        `)
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .maybeSingle();
+
+    if (error) {
+
+        console.error(error);
+
+        estado.textContent =
+            "No se pudo consultar el estado de HILO.";
+
+        boton.disabled = true;
+
+        return;
+
+    }
+
+    if (data) {
+
+        hiloActiveRound = data;
+
+        mostrarEstadoPartida(data);
+
+        estado.textContent =
+            "Tienes una partida activa. Las predicciones se conectarán próximamente.";
+
+        boton.disabled = true;
+
+        bloquearAccionesHilo(true);
+
+    } else {
+
+        hiloActiveRound = null;
+
+        document.getElementById(
+            "hilo-card-rank"
+        ).textContent = "?";
+
+        document.getElementById(
+            "hilo-card-suit"
+        ).textContent = "?";
+
+        document.getElementById(
+            "hilo-multiplier"
+        ).textContent = "1.00x";
+
+        document.getElementById(
+            "hilo-skips"
+        ).textContent = "0/52";
+
+        estado.textContent =
+            "Preparado para comenzar.";
+
+        boton.disabled = false;
+
+        bloquearAccionesHilo(true);
+
+    }
+
+}
+
+
+// INICIAR PARTIDA.
+
+async function iniciarPartidaHilo() {
+
+    const boton = document.getElementById(
+        "hilo-start-button"
+    );
+
+    const estado = document.getElementById(
+        "hilo-game-status"
+    );
+
+    const resultado = document.getElementById(
+        "hilo-result-message"
+    );
+
+    if (!hiloUserId) {
+
+        estado.textContent =
+            "Debes iniciar sesión.";
+
+        return;
+
+    }
+
+
+    // CONVERTIR APUESTA A CENTAVOS.
+
+    const importe = document.getElementById(
+        "hilo-stake"
+    ).value;
+
+    const centavos = convertirImporteCentavos(
+        importe
+    );
+
+    if (centavos === null) {
+
+        estado.textContent =
+            "Introduce una apuesta válida entre $0.01 y $10,000.";
+
+        return;
+
+    }
+
+
+    // GENERAR CLAVE DE SOLICITUD.
+
+    if (!hiloStartRequestKey) {
+
+        if (!window.crypto?.randomUUID) {
+
+            estado.textContent =
+                "No se puede generar una solicitud segura.";
+
+            return;
+
+        }
+
+        hiloStartRequestKey = crypto.randomUUID();
+
+    }
+
+
+    boton.disabled = true;
+
+    estado.textContent =
+        "Iniciando partida...";
+
+    try {
+
+        const { data, error } = await db.rpc(
+            "hilo_start_round",
+            {
+                p_stake_cents: centavos,
+                p_request_key: hiloStartRequestKey
+            }
+        );
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || !data.success) {
+
+            throw new Error(
+                "No se pudo iniciar la partida."
+            );
+
+        }
+
+
+        // GUARDAR PARTIDA ACTUAL.
+
+        hiloStartRequestKey = null;
+
+        hiloActiveRound = {
+
+            id: data.round_id,
+
+            stake_cents: data.stake_cents,
+
+            current_card_rank: data.card_rank,
+
+            current_card_suit: data.card_suit,
+
+            current_multiplier: data.current_multiplier,
+
+            total_guesses: 0,
+
+            skips_used: 0,
+
+            status: "active"
+
+        };
+
+
+        // MOSTRAR CARTA Y MULTIPLICADOR.
+
+        mostrarEstadoPartida(hiloActiveRound);
+
+
+        // BLOQUEAR NUEVA PARTIDA.
+
+        boton.disabled = true;
+
+        bloquearAccionesHilo(true);
+
+        estado.textContent =
+            "¡Partida iniciada! Ya tienes tu primera carta.";
+
+
+        resultado.textContent =
+            "Partida creada correctamente. Estamos preparando las predicciones HIGH y LOW.";
+
+
+        // ACTUALIZAR SALDO REAL.
+
+        await cargarDatosFinancieros(hiloUserId);
+
+
+        showMessage(
+            "Partida HILO iniciada correctamente."
+        );
+
+    } catch (error) {
+
+        console.error(error);
+
+        estado.textContent =
+            "No se pudo iniciar: " + error.message;
+
+        boton.disabled = false;
+
+        // Comprobar si el servidor alcanzó a crear
+        // una partida antes de perderse la respuesta.
+
+        await cargarEstadoHilo(hiloUserId);
+
+    }
+
+}
+
+
+// CONECTAR BOTON DE INICIO.
+
+document.getElementById(
+    "hilo-start-button"
+).addEventListener(
+    "click",
+    iniciarPartidaHilo
 );
 
     // =====================================
