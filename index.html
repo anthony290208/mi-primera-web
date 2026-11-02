@@ -453,38 +453,6 @@ function updateAccount(session) {
 }
 
 
-        if (recoveryMode) {
-            authPanel.hidden = true;
-            accountPanel.hidden = true;
-            resetPanel.hidden = false;
-            return;
-        }
-
-        resetPanel.hidden = true;
-
-        if (session && session.user) {
-
-            authPanel.hidden = true;
-            accountPanel.hidden = false;
-
-            document.getElementById(
-                "account-email"
-            ).textContent = session.user.email || "";
-
-            document.getElementById(
-                "account-username"
-            ).textContent =
-                session.user.user_metadata?.username || "Usuario";
-            cargarDatosFinancieros(session.user.id);
-
-        } else {
-
-            authPanel.hidden = false;
-            accountPanel.hidden = true;
-
-        }
-    }
-
 
 // =============================================
 // PANEL ADMINISTRATIVO
