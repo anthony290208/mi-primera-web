@@ -713,6 +713,8 @@ let hiloStartRequestKey = null;
 let hiloActionRequestKey = null;
 let hiloPendingAction = null;
 let hiloActionBusy = false;
+let hiloCashoutRequestKey = null;
+let hiloCashoutBusy = false;
 
 
     function showMessage(text) {
@@ -1453,18 +1455,28 @@ function mostrarEstadoPartida(round) {
 // ACTIVAR O DESACTIVAR BOTONES.
 
 
+
 function bloquearAccionesHilo(bloquear) {
 
-    document.getElementById("hilo-high").disabled = bloquear;
+    const activa =
+        hiloActiveRound?.status === "active";
 
-    document.getElementById("hilo-low").disabled = bloquear;
+    document.getElementById("hilo-high").disabled =
+        bloquear || !activa;
 
-    document.getElementById("hilo-skip").disabled = bloquear;
+    document.getElementById("hilo-low").disabled =
+        bloquear || !activa;
 
-    // CASH OUT se conectará en la siguiente etapa.
-    document.getElementById("hilo-cashout").disabled = true;
+    document.getElementById("hilo-skip").disabled =
+        bloquear || !activa ||
+        hiloActiveRound.skips_used >= 52;
+
+    document.getElementById("hilo-cashout").disabled =
+        bloquear || !activa ||
+        hiloActiveRound.total_guesses < 1;
 
 }
+
 
 
 // CONSULTAR SI EXISTE UNA PARTIDA ACTIVA.
@@ -1960,6 +1972,175 @@ document.getElementById(
 ).addEventListener(
     "click",
     () => jugarPasoHilo("skip")
+
+// =============================================
+// HILO: CASH OUT
+// =============================================
+
+async function cobrarHilo() {
+
+    if (
+        !hiloActiveRound ||
+        hiloActiveRound.status !== "active"
+    ) {
+        return;
+    }
+
+    if (hiloActiveRound.total_guesses < 1) {
+
+        showMessage(
+            "Debes acertar al menos una predicción."
+        );
+
+        return;
+
+    }
+
+    if (hiloCashoutBusy) {
+        return;
+    }
+
+    // Mantener la misma clave en caso de reintento.
+
+    if (!hiloCashoutRequestKey) {
+
+        if (!window.crypto?.randomUUID) {
+
+            showMessage(
+                "No se puede generar una solicitud segura."
+            );
+
+            return;
+
+        }
+
+        hiloCashoutRequestKey =
+            crypto.randomUUID();
+
+    }
+
+    const boton = document.getElementById(
+        "hilo-cashout"
+    );
+
+    const estado = document.getElementById(
+        "hilo-game-status"
+    );
+
+    const resultado = document.getElementById(
+        "hilo-result-message"
+    );
+
+    hiloCashoutBusy = true;
+
+    boton.disabled = true;
+
+    bloquearAccionesHilo(true);
+
+    estado.textContent = "Procesando CASH OUT...";
+
+    try {
+
+        const { data, error } = await db.rpc(
+            "hilo_cashout",
+            {
+                p_round_id: hiloActiveRound.id,
+                p_request_key: hiloCashoutRequestKey
+            }
+        );
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || !data.success) {
+
+            throw new Error(
+                "No se pudo confirmar el cobro."
+            );
+
+        }
+
+        // El servidor confirmó el cobro.
+
+        hiloCashoutRequestKey = null;
+
+        hiloActiveRound = {
+            ...hiloActiveRound,
+            status: "cashed_out"
+        };
+
+        // Convertir centavos a dólares.
+
+        const cents = BigInt(data.payout_cents);
+
+        const dollars = cents / 100n;
+
+        const decimals = (cents % 100n)
+            .toString()
+            .padStart(2, "0");
+
+        const premio =
+            "$" + dollars.toString() + "." + decimals;
+
+        // Actualizar interfaz.
+
+        estado.textContent =
+            "¡CASH OUT COMPLETADO!";
+
+        resultado.textContent =
+            "Premio acreditado: " + premio;
+
+        document.getElementById(
+            "hilo-start-button"
+        ).disabled = false;
+
+        bloquearAccionesHilo(true);
+
+        // Actualizar saldo desde Supabase.
+
+        await cargarDatosFinancieros(hiloUserId);
+
+        showMessage(
+            "Premio acreditado correctamente."
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        estado.textContent =
+            "No se pudo confirmar el cobro.";
+
+        resultado.textContent =
+            "Puedes volver a intentar CASH OUT. Se conservará el identificador de solicitud para evitar un cobro duplicado.";
+
+        // Permitir reintentar usando la misma clave.
+
+        boton.disabled = false;
+
+    }
+
+    finally {
+
+        hiloCashoutBusy = false;
+
+    }
+
+}
+
+
+// CONECTAR BOTON CASH OUT.
+
+document.getElementById(
+    "hilo-cashout"
+).addEventListener(
+    "click",
+    cobrarHilo
+);
+
 );
 
     // =====================================
